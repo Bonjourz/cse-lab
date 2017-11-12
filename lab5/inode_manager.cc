@@ -1,6 +1,7 @@
 #include "inode_manager.h"
 #include <iostream>
-
+#include <fstream>
+#include <string>
 using namespace std;
 
 // disk layer -----------------------------------------
@@ -75,6 +76,7 @@ block_manager::alloc_block()
 		if (((*data) >> off & 1) == 0) {
 			*data |= (1 << off); 
 			write_block(BBLOCK(blockid), buf);
+			using_blocks[blockid] = 1;
 			return blockid;
 		}
 		blockid ++;
@@ -109,6 +111,10 @@ block_manager::free_block(uint32_t id)
 	mask = ((uint32_t)0xffffffff ^ mask);
 	*data = ((uint32_t)*data & mask);
 	write_block(BBLOCK(id), buf);
+
+	std::map<uint32_t, int>::iterator iter; 
+	iter = using_blocks.find(id);
+	using_blocks.erase(iter);
 }
 
 // The layout of disk should be like this:
@@ -509,4 +515,76 @@ inode_manager::remove_file(uint32_t inum)
    * do not forget to free memory if necessary.
    */
 	free_inode(inum);
+}
+
+void inode_manager::store(uint32_t version) {
+	stringstream ss;
+	ss << version; 
+	std::string log_file = ss.str();
+	log_file += ".log";
+	std::ofstream ofs;
+	ofs.open(log_file.c_str(), std::ios::binary | std::ios::out);
+	
+	uint32_t i;
+	char buf[BLOCK_SIZE];
+	for (i = 0; i < IBLOCK(bm->sb.ninodes, bm->sb.nblocks); i++) {
+		bm->read_block(i, buf);
+		ofs.write(buf, BLOCK_SIZE);
+	}
+
+	int size = bm->using_blocks.size();
+	ofs.write((char *)&size, sizeof(size));
+	std::map<uint32_t, int>::iterator iter = bm->using_blocks.begin();
+	for (i = 0; i < size; i++) {
+		blockid_t block_id = iter->first;
+		ofs.write((char *)&block_id, sizeof(blockid_t));
+		bm->read_block(iter->first, buf);
+		ofs.write(buf, BLOCK_SIZE);
+		iter++;
+	}
+
+	ofs.close();
+}
+
+void inode_manager::restore(uint32_t version) {
+	free(bm);
+	bm = new block_manager();
+  	
+  	uint32_t root_dir = alloc_inode(extent_protocol::T_DIR);
+  	if (root_dir != 1) {
+   		printf("\tim: error! alloc first inode %d, should be 1\n", root_dir);
+    	exit(0);
+    }
+
+	stringstream ss;
+	ss << version; 
+	std::string log_file = ss.str();
+	log_file += ".log";
+	std::ifstream ifs;
+	ifs.open(log_file.c_str(), std::ios::binary | std::ios::in);
+	if (!ifs) {
+		printf("The log_file of version %d doesn't exist\n", version);
+		return;
+	}
+
+	ifs.seekg(0, ios::beg);
+	uint32_t i;
+	char buf[BLOCK_SIZE];
+	for (i = 0; i < IBLOCK(bm->sb.ninodes, bm->sb.nblocks); i++) {
+		ifs.read(buf, BLOCK_SIZE);
+		bm->write_block(i, buf);
+	}
+
+	int size;
+	ifs.read((char *)&size, sizeof(int));
+	for (i = 0; i < size; i++) {
+		blockid_t block_id;
+		ifs.read((char *)&block_id, sizeof(blockid_t));
+		bm->using_blocks[block_id] = 1;
+
+		ifs.read(buf, BLOCK_SIZE);
+		bm->write_block(block_id, buf);
+	}
+
+	ifs.close();
 }
