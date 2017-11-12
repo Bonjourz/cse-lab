@@ -78,3 +78,19 @@ int extent_server::remove(extent_protocol::extentid_t id, int &)
   return extent_protocol::OK;
 }
 
+int extent_server::store(extent_protocol::extentid_t id, int&) {
+  printf("extent_server: store version %lld\n", id);
+
+  id &= 0x7fffffff;
+  im->store(id);
+ 
+  return extent_protocol::OK;
+}
+int extent_server::restore(extent_protocol::extentid_t id, int&) {
+  printf("extent_server: restore version %lld\n", id);
+
+  id &= 0x7fffffff;
+  im->restore(id);
+ 
+  return extent_protocol::OK;
+}
