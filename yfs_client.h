@@ -2,16 +2,13 @@
 #define yfs_client_h
 
 #include <string>
-
-#include "lock_protocol.h"
-#include "lock_client.h"
-
 //#include "yfs_protocol.h"
 #include "extent_client.h"
+#include "lock_client.h"
 #include <vector>
 
 
-#define CA_FILE "./cert/ca.pem:
+#define CA_FILE "./cert/ca.pem:"
 #define USERFILE	"./etc/passwd"
 #define GROUPFILE	"./etc/group"
 
@@ -52,7 +49,12 @@ class yfs_client {
 	unsigned short uid;
 	unsigned short gid;
   };
-
+  struct syminfo {
+    unsigned long long size;
+    unsigned long atime;
+    unsigned long mtime;
+    unsigned long ctime;
+  };
   struct dirent {
     std::string name;
     yfs_client::inum inum;
@@ -61,6 +63,9 @@ class yfs_client {
  private:
   static std::string filename(inum);
   static inum n2i(std::string);
+  static int s2n(std::string n);
+  static std::string n2s(uint32_t num);
+  static std::string i2s(inum inum);
 
  public:
   yfs_client();
@@ -78,10 +83,14 @@ class yfs_client {
   int readdir(inum, std::list<dirent> &);
   int write(inum, size_t, off_t, const char *, size_t &);
   int read(inum, size_t, off_t, std::string &);
-  int unlink(inum,const char *);
+  int unlink(inum, const char *);
   int mkdir(inum , const char *, mode_t , inum &);
-
   int verify(const char* cert_file, unsigned short*);
+  
+  /** you may need to add symbolic link related methods here.*/
+  int symlink(inum, const char *, const char *, inum&);
+  int readlink(inum, std::string&);
+  int getsym(inum, syminfo &);
 };
 
 #endif 

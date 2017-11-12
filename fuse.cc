@@ -58,7 +58,8 @@ getattr(yfs_client::inum inum, struct stat &st)
         st.st_size = info.size;
 		st.st_uid = info.uid;
 		st.st_gid = info.gid;
-    } else {
+        printf("   getattr -> %llu\n", info.size);
+    } else if (yfs->isdir(inum)){
         yfs_client::dirinfo info;
         ret = yfs->getdir(inum, info);
         if(ret != yfs_client::OK)
@@ -70,6 +71,18 @@ getattr(yfs_client::inum inum, struct stat &st)
         st.st_ctime = info.ctime;
 		st.st_uid = info.uid;
 		st.st_gid = info.gid;
+        printf("   getattr -> %lu %lu %lu\n", info.atime, info.mtime, info.ctime);
+    } else {
+        yfs_client::syminfo info;
+        ret = yfs->getsym(inum, info);
+        if(ret != yfs_client::OK)
+            return ret;
+        st.st_mode = S_IFLNK | 0777;
+        st.st_nlink = 1;
+        st.st_atime = info.atime;
+        st.st_mtime = info.mtime;
+        st.st_ctime = info.ctime;
+        printf("   getattr -> %llu\n", info.size);
     }
     return yfs_client::OK;
 }
@@ -130,6 +143,7 @@ fuseserver_setattr(fuse_req_t req, fuse_ino_t ino, struct stat *attr,
         int to_set, struct fuse_file_info *fi)
 {
     printf("fuseserver_setattr 0x%x\n", to_set);
+<<<<<<< HEAD
 	printf("attr->mode %o\n", attr->st_mode);
 	printf("attr->u_id %d\n", attr->st_uid);
 	printf("attr->g_id %d\n", attr->st_gid);
@@ -137,6 +151,10 @@ fuseserver_setattr(fuse_req_t req, fuse_ino_t ino, struct stat *attr,
 	yfs_client::status ret;
 
 	if (LAB6_ATTR_MASK & to_set) {
+=======
+    if ((FUSE_SET_ATTR_SIZE | FUSE_SET_ATTR_ATIME | FUSE_SET_ATTR_MTIME) & to_set) {
+        printf("   fuseserver_setattr set size to %zu\n", attr->st_size);
+>>>>>>> lab4
         struct stat st;
 		yfs_client::filestat fst;
 		fst.mode = attr->st_mode;
@@ -502,6 +520,46 @@ fuseserver_statfs(fuse_req_t req)
     fuse_reply_statfs(req, &buf);
 }
 
+void fuseserver_symlink (fuse_req_t req, const char *link, 
+    fuse_ino_t parent, const char *name) {
+
+    struct fuse_entry_param e;
+    e.attr_timeout = 0.0;
+    e.entry_timeout = 0.0;
+    e.generation = 0;
+
+    yfs_client::inum inum;
+    int r;
+    if ((r = yfs->symlink(parent, name, link, inum)) == yfs_client::OK) {
+        e.ino = inum;
+
+        getattr(inum, e.attr);
+        fuse_reply_entry(req, &e);
+
+    } else {
+        if (r == yfs_client::EXIST){
+            fuse_reply_err(req, EEXIST);
+        } else {
+            fuse_reply_err(req, ENOENT);
+        }
+    }
+}
+
+void fuseserver_readlink (fuse_req_t req, fuse_ino_t ino) {
+    std::string link;
+    int r;
+    if ((r = yfs->readlink(ino, link)) == yfs_client::OK) {
+        fuse_reply_readlink(req, link.c_str());
+
+    } else {
+        if (r == yfs_client::NOENT) {
+            fuse_reply_err(req, ENOENT);
+        } else {
+            fuse_reply_err(req, ENOTEMPTY);
+        }
+    }
+}
+
 struct fuse_lowlevel_ops fuseserver_oper;
 
 int
@@ -513,25 +571,29 @@ main(int argc, char *argv[])
 
     setvbuf(stdout, NULL, _IONBF, 0);
 
+<<<<<<< HEAD
 #if 1
     if(argc != 5){
         fprintf(stderr, "Usage: yfs_client <mountpoint> <port-extent-server> <port-lock-server> <user-cerficiate-file>\n");
-        exit(1);
-    }
-#else
-    if(argc != 2){
-        fprintf(stderr, "Usage: yfs_client <mountpoint>\n");
+=======
+#if 0
+    if(argc != 4){
+        fprintf(stderr, "Usage: yfs_client <mountpoint> <port-extent-server> <port-lock-server>\n");
+>>>>>>> lab4
         exit(1);
     }
 #endif
+    if(argc != 4){
+        fprintf(stderr, "Usage: yfs_client <mountpoint> <port-extent-server>\n");
+        exit(1);
+    }
     mountpoint = argv[1];
 
     srandom(getpid());
 
     myid = random();
-
+    
     yfs = new yfs_client(argv[2], argv[3], argv[4]);
-    // yfs = new yfs_client();
 
     fuseserver_oper.getattr    = fuseserver_getattr;
     fuseserver_oper.statfs     = fuseserver_statfs;
@@ -550,6 +612,9 @@ main(int argc, char *argv[])
      * routines here to implement symbolic link,
      * rmdir, etc.
      * */
+
+    fuseserver_oper.symlink    = fuseserver_symlink;
+    fuseserver_oper.readlink   = fuseserver_readlink;
 
     const char *fuse_argv[20];
     int fuse_argc = 0;
