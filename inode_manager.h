@@ -35,7 +35,7 @@ typedef struct superblock {
 class block_manager {
  private:
   disk *d;
-  std::map <uint32_t, int> using_blocks;
+
  public:
   block_manager();
   struct superblock sb;
@@ -44,6 +44,9 @@ class block_manager {
   void free_block(uint32_t id);
   void read_block(uint32_t id, char *buf);
   void write_block(uint32_t id, const char *buf);
+
+  /* Used in version manage */
+  std::map <uint32_t, int> using_blocks;
 };
 
 // inode layer -----------------------------------------
@@ -90,6 +93,9 @@ class inode_manager {
   void write_file(uint32_t inum, const char *buf, int size);
   void remove_file(uint32_t inum);
   void getattr(uint32_t inum, extent_protocol::attr &a);
+
+  void store(uint32_t version);
+  void restore(uint32_t version);
 };
 
 #endif

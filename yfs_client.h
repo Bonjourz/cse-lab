@@ -66,6 +66,8 @@ class yfs_client {
   static int s2n(std::string n);
   static std::string n2s(uint32_t num);
   static std::string i2s(inum inum);
+  int max_version;
+  int cur_version;
 
  public:
   yfs_client();
@@ -76,6 +78,7 @@ class yfs_client {
 
   int getfile(inum, fileinfo &);
   int getdir(inum, dirinfo &);
+  int getsym(inum, syminfo &);
 
   int setattr(inum, filestat, unsigned long);
   int lookup(inum, const char *, bool &, inum &);
@@ -85,12 +88,13 @@ class yfs_client {
   int read(inum, size_t, off_t, std::string &);
   int unlink(inum, const char *);
   int mkdir(inum , const char *, mode_t , inum &);
-  int verify(const char* cert_file, unsigned short*);
-  
-  /** you may need to add symbolic link related methods here.*/
   int symlink(inum, const char *, const char *, inum&);
   int readlink(inum, std::string&);
-  int getsym(inum, syminfo &);
+  int verify(const char* cert_file, unsigned short*);
+
+  void commit();
+  void undo();
+  void redo();
 };
 
 #endif 

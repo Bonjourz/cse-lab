@@ -16,6 +16,7 @@ using namespace std;
 
 #define UINT_MAX_LEN 10
 #define INUM_MAX_LEN 20
+#define MAX(a,b) (a > b) ? a : b
 
 
 yfs_client::yfs_client()
@@ -32,6 +33,9 @@ yfs_client::yfs_client(std::string extent_dst, std::string lock_dst, const char*
     if (ec->put(1, "") != extent_protocol::OK)
         printf("error init root dir\n"); // XYB: init root dir
     lc->release(1);
+
+    max_version = 1;
+    cur_version = 1;
 }
 
 int
@@ -251,7 +255,7 @@ yfs_client::setattr(inum ino, filestat st, unsigned long toset)
         return IOERR;
     }
 
-    buf.resize(size);
+    buf.resize(st.size);
     if (ec->put(ino, buf) != extent_protocol::OK) {
         printf("Error in setting attributes of files\n");
         lc->release(ino);
@@ -598,3 +602,28 @@ int yfs_client::readlink(inum ino, std::string& name) {
     return r;
 }
 
+void yfs_client::commit() {
+    ec->store(cur_version);
+    cur_version++;
+    max_version = MAX(max_version, cur_version);
+}
+
+void yfs_client::undo() {
+    if (cur_version == 1)
+        printf("Cannot undo\n");
+
+    else {
+        cur_version --;
+        ec->restore(cur_version);
+    }
+}
+
+void yfs_client::redo() {
+    if (cur_version == max_version)
+        printf("Cannot redo\n");
+
+    else {
+        cur_version ++;
+        ec->restore(cur_version);
+    }
+}

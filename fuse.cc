@@ -15,14 +15,34 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <arpa/inet.h>
+#include <signal.h>
 #include "lang/verify.h"
 #include "yfs_client.h"
+
 
 int myid;
 yfs_client *yfs;
 
 int id() { 
     return myid;
+}
+
+void sig_handler(int no) {
+    switch (no) {
+        case SIGINT: {
+            yfs->commit();
+            printf("commit a new version\n");
+            break;
+        } case SIGUSR1: {
+            yfs->undo();
+            printf("to previous version\n");
+            break;
+        } case SIGUSR2: {
+            yfs->redo();
+            printf("to next version\n");
+            break;
+        }
+    }
 }
 
 //
@@ -143,7 +163,6 @@ fuseserver_setattr(fuse_req_t req, fuse_ino_t ino, struct stat *attr,
         int to_set, struct fuse_file_info *fi)
 {
     printf("fuseserver_setattr 0x%x\n", to_set);
-<<<<<<< HEAD
 	printf("attr->mode %o\n", attr->st_mode);
 	printf("attr->u_id %d\n", attr->st_uid);
 	printf("attr->g_id %d\n", attr->st_gid);
@@ -151,10 +170,8 @@ fuseserver_setattr(fuse_req_t req, fuse_ino_t ino, struct stat *attr,
 	yfs_client::status ret;
 
 	if (LAB6_ATTR_MASK & to_set) {
-=======
-    if ((FUSE_SET_ATTR_SIZE | FUSE_SET_ATTR_ATIME | FUSE_SET_ATTR_MTIME) & to_set) {
+    //if ((FUSE_SET_ATTR_SIZE | FUSE_SET_ATTR_ATIME | FUSE_SET_ATTR_MTIME) & to_set) {
         printf("   fuseserver_setattr set size to %zu\n", attr->st_size);
->>>>>>> lab4
         struct stat st;
 		yfs_client::filestat fst;
 		fst.mode = attr->st_mode;
@@ -565,28 +582,28 @@ struct fuse_lowlevel_ops fuseserver_oper;
 int
 main(int argc, char *argv[])
 {
+    signal(SIGINT, sig_handler);
+    signal(SIGUSR1, sig_handler);
+    signal(SIGUSR2, sig_handler);
     char *mountpoint = 0;
     int err = -1;
     int fd;
 
     setvbuf(stdout, NULL, _IONBF, 0);
-
-<<<<<<< HEAD
+/*
+<<<<<<< HEAD*/
 #if 1
     if(argc != 5){
         fprintf(stderr, "Usage: yfs_client <mountpoint> <port-extent-server> <port-lock-server> <user-cerficiate-file>\n");
+/*
 =======
 #if 0
     if(argc != 4){
         fprintf(stderr, "Usage: yfs_client <mountpoint> <port-extent-server> <port-lock-server>\n");
 >>>>>>> lab4
-        exit(1);
+        exit(1);*/
     }
 #endif
-    if(argc != 4){
-        fprintf(stderr, "Usage: yfs_client <mountpoint> <port-extent-server>\n");
-        exit(1);
-    }
     mountpoint = argv[1];
 
     srandom(getpid());
