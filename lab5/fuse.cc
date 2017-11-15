@@ -601,6 +601,7 @@ main(int argc, char *argv[])
     if(argc != 4){
         fprintf(stderr, "Usage: yfs_client <mountpoint> <port-extent-server> <port-lock-server>\n");
 >>>>>>> lab4*/
+
         exit(1);
     }
 #endif
