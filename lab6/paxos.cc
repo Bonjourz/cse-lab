@@ -121,19 +121,20 @@ proposer::run(int instance, std::vector<std::string> cur_nodes, std::string newv
       accept(instance, accepts, nodes, v);
 
       if (majority(cur_nodes, accepts)) {
-	tprintf("paxos::manager: received a majority of accept responses\n");
-
-	breakpoint2();
-
-	decide(instance, accepts, v);
-	r = true;
-      } else {
-	tprintf("paxos::manager: no majority of accept responses\n");
+        tprintf("paxos::manager: received a majority of accept responses\n");
+        breakpoint2();
+        decide(instance, accepts, v);
+        r = true;
+      } 
+      else {
+        tprintf("paxos::manager: no majority of accept responses\n");
       }
-    } else {
+    } 
+    else {
       tprintf("paxos::manager: no majority of prepare responses\n");
     }
-  } else {
+  } 
+  else {
     tprintf("paxos::manager: prepare is rejected %d\n", stable);
   }
   stable = true;
@@ -153,7 +154,52 @@ proposer::prepare(unsigned instance, std::vector<std::string> &accepts,
   // You fill this in for Lab 6
   // Note: if got an "oldinstance" reply, commit the instance using
   // acc->commit(...), and return false.
-  return false;
+  paxos_protocol::preparearg parg;
+  parg.instance = instance;
+  parg.n = my_n;
+  prop_t prop_num;
+  prop_num.n = 0;
+  prop_num.m = "";
+
+  for (int i = 0; i < nodes.size(); i++) {
+    std::string node = nodes[i];
+    handle h(node);
+    rpcc *cl = h.safebind();
+
+    if (cl) {
+      paxos_protocol::prepareres res;
+      paxos_protocol::status ret = cl->call(paxos_protocol::preparereq, me, parg, res, rpcc::to(1000));
+      if (ret != paxos_protocol::OK) {
+        if (ret == rpc_const::atmostonce_failure || ret == rpc_const::oldsrv_failure)
+          mgr.delete_handle(node);
+      }
+
+      else {
+        if (res.oldinstance) {
+          tprintf("paxos prepare: old instance %d\n", instance);
+          acc->commit(instance, res.v_a);
+          return false;
+        }
+
+        else if (res.accept) {
+          accepts.push_back(node);
+          if (res.n_a > prop_num) {
+            prop_num = res.n_a;
+            v = res.v_a;
+          }
+          tprintf("paxos prepare: OK v = %s", v.c_str());
+        }
+
+        else {
+          /* reject, because the proposal number is too small, empty */
+        }
+      }
+    }
+    else
+      tprintf("paxos proposer prepare: cannot set the rpc call\n");
+  }
+
+  return true;
 }
 
 // run() calls this to send out accept RPCs to accepts.
@@ -163,6 +209,32 @@ proposer::accept(unsigned instance, std::vector<std::string> &accepts,
         std::vector<std::string> nodes, std::string v)
 {
   // You fill this in for Lab 6
+  paxos_protocol::acceptarg aarg;
+  aarg.instance = instance;
+  aarg.n = my_n;
+  aarg.v = v;
+
+  for (int i = 0; i < nodes.size(); i++) {
+    std::string node = nodes[i];
+    handle h(node);
+    rpcc *cl = h.safebind();
+    if (cl) {
+      bool r;
+      paxos_protocol::status ret = cl->call(paxos_protocol::acceptreq, me, aarg, r, rpcc::to(1000));
+      if (ret != paxos_protocol::OK) {
+        if (ret == rpc_const::atmostonce_failure || ret == rpc_const::oldsrv_failure)
+          mgr.delete_handle(node);
+      }
+
+      else {
+        if (r)
+          accepts.push_back(node);
+      }
+    }
+
+    else
+      tprintf("paxos proposer accept: cannot set the rpc call\n");
+  }
 }
 
 void
@@ -170,6 +242,27 @@ proposer::decide(unsigned instance, std::vector<std::string> accepts,
 	      std::string v)
 {
   // You fill this in for Lab 6
+  paxos_protocol::decidearg darg;
+  darg.instance = instance;
+  darg.v = v;
+
+  for (int i = 0; i < accepts.size(); i++) {
+    std::string node = accepts[i];
+    handle h(node);
+    rpcc *cl = h.safebind();
+    if (cl) {
+      int r;
+    //decidereq(std::string src, paxos_protocol::decidearg a, int &r)
+      paxos_protocol::status ret = cl->call(paxos_protocol::decidereq, me, darg, r, rpcc::to(1000));
+      if (ret != paxos_protocol::OK) {
+        if (ret == rpc_const::atmostonce_failure || ret == rpc_const::oldsrv_failure)
+          mgr.delete_handle(node);
+      }
+    }
+
+    else
+      tprintf("paxos proposer decide: cannot set the rpc call\n");
+  }
 }
 
 acceptor::acceptor(class paxos_change *_cfg, bool _first, std::string _me, 
@@ -205,8 +298,31 @@ acceptor::preparereq(std::string src, paxos_protocol::preparearg a,
   // You fill this in for Lab 6
   // Remember to initialize *BOTH* r.accept and r.oldinstance appropriately.
   // Remember to *log* the proposal if the proposal is accepted.
-  return paxos_protocol::OK;
+  ScopedLock ml(&pxs_mutex);
+  tprintf("accepter preparereq for proposal instance %d (my instance %d)\n", 
+   a.instance, instance_h);
+  r.oldinstance = false;
+  r.accept = false;
+  if (a.instance <= instance_h) {
+    r.oldinstance = true;
+    r.v_a = v_a;
+    r.n_a = n_a;
+    return paxos_protocol::OK;
+  }
 
+  else if (a.n > n_h) {
+    n_h = a.n;
+    //l->logprop(n_h);
+    r.accept = true;
+    r.n_a = n_a;
+    r.v_a = v_a;
+    tprintf("accepter preparereq for proposal instance %d (my instance %d) has been accepted\n",
+      a.instance, instance_h);
+    return paxos_protocol::OK;
+  }
+
+  r.n_a = n_h;
+  return paxos_protocol::OK;
 }
 
 // the src argument is only for debug purpose
@@ -215,7 +331,16 @@ acceptor::acceptreq(std::string src, paxos_protocol::acceptarg a, bool &r)
 {
   // You fill this in for Lab 6
   // Remember to *log* the accept if the proposal is accepted.
-
+  ScopedLock ml(&pxs_mutex);
+  tprintf("acceptor acceptreq for accepted (my instance %d) v=%s\n", 
+     instance_h, v_a.c_str());
+  r = false;
+  if (a.n >= n_h) {
+    n_a = a.n;
+    v_a = a.v;
+    r = true;
+    //l->logaccept(a.n, a.v);
+  }
   return paxos_protocol::OK;
 }
 
@@ -224,7 +349,7 @@ paxos_protocol::status
 acceptor::decidereq(std::string src, paxos_protocol::decidearg a, int &r)
 {
   ScopedLock ml(&pxs_mutex);
-  tprintf("decidereq for accepted instance %d (my instance %d) v=%s\n", 
+  tprintf("acceptor  decidereq for accepted instance %d (my instance %d) v=%s\n", 
 	 a.instance, instance_h, v_a.c_str());
   if (a.instance == instance_h + 1) {
     VERIFY(v_a == a.v);
