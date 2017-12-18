@@ -312,7 +312,7 @@ acceptor::preparereq(std::string src, paxos_protocol::preparearg a,
 
   else if (a.n > n_h) {
     n_h = a.n;
-    //l->logprop(n_h);
+    l->logprop(n_h);
     r.accept = true;
     r.n_a = n_a;
     r.v_a = v_a;
@@ -339,7 +339,7 @@ acceptor::acceptreq(std::string src, paxos_protocol::acceptarg a, bool &r)
     n_a = a.n;
     v_a = a.v;
     r = true;
-    //l->logaccept(a.n, a.v);
+    l->logaccept(a.n, a.v);
   }
   return paxos_protocol::OK;
 }
