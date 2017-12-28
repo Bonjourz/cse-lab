@@ -70,11 +70,14 @@ block_manager::alloc_block()
           use bit operation.
           remind yourself of the layout of disk.
    */
+  pthread_mutex_lock(&bitmap_lock);
   char buf[BLOCK_SIZE];
   blockid_t blockid = IBLOCK(sb.ninodes, sb.nblocks);
   while (1) {
-    if (blockid >= sb.nblocks)
+    if (blockid >= sb.nblocks) {
+      pthread_mutex_unlock(&bitmap_lock);
       return -1;
+    }
 
     read_block(BBLOCK(blockid), buf);
 
@@ -88,12 +91,13 @@ block_manager::alloc_block()
       *data |= (1 << off); 
       write_block(BBLOCK(blockid), buf);
       using_blocks[blockid] = 1;
+      pthread_mutex_unlock(&bitmap_lock);
       return blockid;
     }
     blockid ++;
   }
   
-
+  pthread_mutex_unlock(&bitmap_lock);
   return -1;
 }
 
@@ -107,25 +111,25 @@ block_manager::free_block(uint32_t id)
 
   if (id >= sb.nblocks)
     return;
-
-  char buf[BLOCK_SIZE];
-  read_block(BBLOCK(id), buf);
   
+  pthread_mutex_lock(&bitmap_lock);
+  char* buf =(char *) malloc(BLOCK_SIZE);
+  read_block(BBLOCK(id), buf);
   int off_block = id % BPB;
   int pos = off_block / 32;
   int off = off_block % 32;
 
   uint32_t *data = (uint32_t *)buf;
   data += pos;        /* Get the correct postion */
-
   uint32_t mask = (1 << off);
   mask = ((uint32_t)0xffffffff ^ mask);
   *data = ((uint32_t)*data & mask);
   write_block(BBLOCK(id), buf);
-
-  std::map<uint32_t, int>::iterator iter; 
-  iter = using_blocks.find(id);
-  using_blocks.erase(iter);
+  free(buf);
+  buf = NULL;
+  std::map<uint32_t, int>::iterator iter;
+  using_blocks[id] = 0;
+  pthread_mutex_unlock(&bitmap_lock);
 }
 
 // The layout of disk should be like this:
@@ -136,9 +140,9 @@ block_manager::block_manager()
 
   // format the disk
   sb.size = BLOCK_SIZE * BLOCK_NUM / 4;
-  sb.nblocks = BLOCK_NUM;
+  sb.nblocks = BLOCK_NUM / 4;
   sb.ninodes = INODE_NUM;
-
+  pthread_mutex_init(&bitmap_lock, NULL);
 }
 
 int block_manager::encodeTransfer(const char& i) {
@@ -161,8 +165,10 @@ int block_manager::encodeTransfer(const char& i) {
   else if (x == 0)
     r = (char)0x00;
 
-  else
+  else {
+      printf("error: %d", x);
     assert(0);
+  }
 
   r = r & 0xff;
   return r;
@@ -199,7 +205,8 @@ char block_manager::decodeTransfer(const int &i) {
 
   else if (numOfOne(i ^ 0xfc) < 3)
     return (char)3;
-
+  
+    printf("transfer error: %d\n", i);
   assert(0);
 }
 
@@ -249,6 +256,7 @@ inode_manager::inode_manager()
     printf("\tim: error! alloc first inode %d, should be 1\n", root_dir);
     exit(0);
   }
+  pthread_mutex_init(&inode_lock, NULL);
 }
 
 /* Create a new file.
@@ -263,6 +271,7 @@ inode_manager::alloc_inode(uint32_t type)
     
    * if you get some heap memory, do not forget to free it.
    */
+  pthread_mutex_lock(&inode_lock); 
   uint32_t inode_id = 1;
   char buf[BLOCK_SIZE];
   while (inode_id <= bm->sb.ninodes) {
@@ -274,11 +283,13 @@ inode_manager::alloc_inode(uint32_t type)
         inode->size = 0;
         inode->atime = inode->mtime = inode->ctime = time(NULL);         
         bm->write_block(IBLOCK(inode_id, bm->sb.nblocks), buf);
+        pthread_mutex_unlock(&inode_lock);
         return inode_id;
       }
     }
   } 
-  
+
+  pthread_mutex_unlock(&inode_lock);
   return -1;
 }
 
@@ -292,12 +303,15 @@ inode_manager::free_inode(uint32_t inum)
    * do not forget to free memory if necessary.
    */
   inode_t *inode_ptr = get_inode(inum);
-
+  inode_t* ptr = inode_ptr;
   if (inode_ptr == NULL)
     return;
-
+  
+  pthread_mutex_lock(&inode_lock);
   if (inode_ptr->type == 0) {
-    free(inode_ptr);
+      free(inode_ptr);
+      inode_ptr = NULL;
+      pthread_mutex_unlock(&inode_lock);
     return;
   }
   inode_ptr->type = 0;
@@ -307,22 +321,26 @@ inode_manager::free_inode(uint32_t inum)
     bm->free_block(inode_ptr->blocks[i]);
 
   if (block_num > NDIRECT) {
-    char buf_tmp[BLOCK_SIZE];
+    char* buf_tmp = (char *)malloc(BLOCK_SIZE);
     bm->read_block(inode_ptr->blocks[NDIRECT], buf_tmp);
     uint block_a[NINDIRECT];
     memcpy(block_a, buf_tmp, sizeof(block_a));
-
     bm->free_block(inode_ptr->blocks[NINDIRECT]);
+    free(buf_tmp);
+    buf_tmp = NULL;
 
     for (int i = 0; i < block_num - NDIRECT; i++)
       bm->free_block(block_a[i]);
   }
 
+  assert(ptr == inode_ptr);
   inode_ptr->ctime = time(NULL);
   inode_ptr->atime = time(NULL);
   inode_ptr->mtime = time(NULL);
   put_inode(inum, inode_ptr);
   free(inode_ptr);
+  inode_ptr = NULL;
+  pthread_mutex_unlock(&inode_lock);
 }
 
 
@@ -443,6 +461,7 @@ inode_manager::read_file(uint32_t inum, char **buf_out, int *size)
     inode_ptr->atime = time(NULL);
     put_inode(inum, inode_ptr);
     free(inode_ptr);
+    inode_ptr = NULL;
 }
 
 /* alloc/free blocks if needed */
@@ -581,6 +600,7 @@ inode_manager::write_file(uint32_t inum, const char *buf, int size)
     inode_ptr->atime = inode_ptr->ctime = inode_ptr->mtime = time(NULL);
     put_inode(inum, inode_ptr);
     free(inode_ptr);
+    inode_ptr = NULL;
 }
 
 void
@@ -633,7 +653,8 @@ void inode_manager::store(uint32_t version) {
   ofs.write((char *)&size, sizeof(size));
   std::map<uint32_t, int>::iterator iter = bm->using_blocks.begin();
   for (i = 0; i < size; i++) {
-    blockid_t block_id = iter->first;
+    if (iter->second == 0) continue;
+      blockid_t block_id = iter->first;
     ofs.write((char *)&block_id, sizeof(blockid_t));
     bm->read_block(iter->first, buf);
     ofs.write(buf, BLOCK_SIZE);

@@ -35,6 +35,7 @@ typedef struct superblock {
 class block_manager {
  private:
   disk *d;
+  pthread_mutex_t bitmap_lock; 
 
  public:
   block_manager();
@@ -66,7 +67,7 @@ class block_manager {
 // Block containing bit for block b
 #define BBLOCK(b) ((b)/BPB + 2)
 
-#define NDIRECT 100
+#define NDIRECT 32
 #define NINDIRECT (BLOCK_SIZE / sizeof(uint))
 #define MAXFILE (NDIRECT + NINDIRECT)
 
@@ -82,8 +83,10 @@ typedef struct inode {
 class inode_manager {
  private:
   block_manager *bm;
+  pthread_mutex_t inode_lock; 
   struct inode* get_inode(uint32_t inum);
   void put_inode(uint32_t inum, struct inode *ino);
+
 
  public:
   inode_manager();

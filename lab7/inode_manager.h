@@ -35,7 +35,7 @@ typedef struct superblock {
 class block_manager {
  private:
   disk *d;
-
+  pthread_mutex_t bitmap_lock; 
   // lab7
   int encodeTransfer(const char&);
   char decodeTransfer(const int&);
@@ -89,6 +89,7 @@ typedef struct inode {
 class inode_manager {
  private:
   block_manager *bm;
+  pthread_mutex_t inode_lock; 
   struct inode* get_inode(uint32_t inum);
   void put_inode(uint32_t inum, struct inode *ino);
 
